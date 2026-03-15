@@ -8,7 +8,6 @@
 
 <pre style="color:#555;font-size:11px">
 MARKET REGIME MODEL v8
-github.com/[your-repo]
 ──────────────────────────────────────────────────────────────────
 </pre>
 
@@ -20,31 +19,37 @@ Then refresh this page.
 
 <div id="app" style="display:none">
 
+<!-- DATE PICKER -->
+<div style="margin:0 0 16px">
+<span style="color:#888">JUMP TO DATE: </span>
+<input id="date-input" type="date" style="background:#222;color:#ccc;border:1px solid #444;font-family:'Courier New',monospace;font-size:14px;padding:4px 8px">
+<span id="date-go" style="color:#888;cursor:pointer;padding:4px 12px;border:1px solid #444;margin-left:4px;display:inline-block"> GO </span>
+<span id="date-today" style="color:#555;cursor:pointer;padding:4px 12px;border:1px solid #333;margin-left:4px;display:inline-block"> LATEST </span>
+<span id="date-hint" style="color:#555;font-size:11px;margin-left:12px"></span>
+</div>
+
 <!-- SCORE -->
 <div id="score-section"></div>
 
 <!-- SCALE BAR -->
 <pre id="scale-bar" style="color:#888;margin:10px 0 20px"></pre>
 
-<!-- INFO LINE -->
-<pre id="info-line" style="color:#666;font-size:12px"></pre>
-
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
 
 <!-- TOP FEATURES -->
-<pre style="color:#888;font-size:12px;margin-bottom:4px">TOP SIGNALS DRIVING TODAY'S SCORE</pre>
+<pre style="color:#888;font-size:12px;margin-bottom:4px">TOP SIGNALS DRIVING THIS SCORE</pre>
 <pre id="features" style="font-size:12px"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
 
 <!-- CHART -->
-<pre style="color:#888;font-size:12px;margin-bottom:4px">6-MONTH HISTORY</pre>
+<pre style="color:#888;font-size:12px;margin-bottom:4px">6-MONTH WINDOW (centered on selected date)</pre>
 <pre id="chart" style="font-size:11px;line-height:1.3"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
 
-<!-- FULL HISTORY TABLE -->
-<pre style="color:#888;font-size:12px;margin-bottom:4px">SCORE HISTORY (last 30 readings)</pre>
+<!-- HISTORY TABLE -->
+<pre style="color:#888;font-size:12px;margin-bottom:4px">SCORE HISTORY (30 days around selected date)</pre>
 <pre id="history-table" style="font-size:11px"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
@@ -68,204 +73,262 @@ To update: python collect_all_data.py --fred-key YOUR_KEY
 </div>
 
 <script>
+var DATA = null;
+var currentIdx = -1;
+
 fetch('./data/results.json')
-.then(r => r.json())
-.then(data => {
+.then(function(r) { return r.json(); })
+.then(function(data) {
+    DATA = data;
     document.getElementById('loading').style.display = 'none';
     document.getElementById('app').style.display = 'block';
-    render(data);
+    var inp = document.getElementById('date-input');
+    inp.min = data.history.dates[0];
+    inp.max = data.history.dates[data.history.dates.length - 1];
+    inp.value = data.history.dates[data.history.dates.length - 1];
+    document.getElementById('date-hint').textContent =
+        'Range: ' + data.history.dates[0] + ' to ' + data.history.dates[data.history.dates.length - 1];
+    jumpToDate(data.history.dates[data.history.dates.length - 1]);
 })
-.catch(e => {
-    document.getElementById('loading').innerHTML = 
+.catch(function(e) {
+    document.getElementById('loading').innerHTML =
         'ERROR: Could not load data/results.json\n\n' +
         'Make sure you have run:\n' +
         '  1. python collect_all_data.py --fred-key YOUR_KEY\n' +
         '  2. python run_model.py\n\n' +
-        'And that this HTML file is in the same folder as the data/ directory.\n\n' +
-        'If running locally, you may need a local server:\n' +
+        'Then start a local server:\n' +
         '  python -m http.server 8000\n' +
-        '  Then open http://localhost:8000/index.html\n\n' +
+        '  Open http://localhost:8000/index.html\n\n' +
         'Error: ' + e.message;
     document.getElementById('loading').style.color = '#aa4444';
 });
 
-function render(data) {
-    var c = data.current;
-    var score = c.score;
-    var alert = c.alert;
-    
-    // Score color
-    var col;
-    if (score >= 30) col = '#4a4';
-    else if (score >= 10) col = '#5a5';
-    else if (score >= -10) col = '#888';
-    else if (score >= -30) col = '#a85';
-    else col = '#a44';
-    
-    // Big score display
+document.getElementById('date-go').addEventListener('click', function() {
+    jumpToDate(document.getElementById('date-input').value);
+});
+document.getElementById('date-today').addEventListener('click', function() {
+    if (!DATA) return;
+    var last = DATA.history.dates[DATA.history.dates.length - 1];
+    document.getElementById('date-input').value = last;
+    jumpToDate(last);
+});
+document.getElementById('date-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') jumpToDate(this.value);
+});
+
+function findClosestIdx(target) {
+    var dates = DATA.history.dates;
+    var best = 0, bestDiff = Infinity;
+    for (var i = 0; i < dates.length; i++) {
+        var diff = Math.abs(new Date(dates[i]) - new Date(target));
+        if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    return best;
+}
+
+function jumpToDate(dateStr) {
+    if (!DATA) return;
+    currentIdx = findClosestIdx(dateStr);
+    renderAt(currentIdx);
+}
+
+function getAlert(s) {
+    if (s >= 40) return 'STRONG BULL';
+    if (s >= 15) return 'BULL';
+    if (s >= 5) return 'MILD BULL';
+    if (s >= -5) return 'NEUTRAL';
+    if (s >= -15) return 'MILD BEAR';
+    if (s >= -40) return 'BEAR';
+    return 'CRISIS';
+}
+
+function getColor(s) {
+    if (s >= 30) return '#4a4';
+    if (s >= 10) return '#5a5';
+    if (s >= -10) return '#888';
+    if (s >= -30) return '#a85';
+    return '#a44';
+}
+
+function renderAt(idx) {
+    var h = DATA.history;
+    var score = h.scores[idx];
+    var date = h.dates[idx];
+    var alert = getAlert(score);
+    var col = getColor(score);
+    var regime = h.regimes[idx] || 'Unknown';
+    var sp500 = h.sp500[idx];
+    var actual = h.actual[idx];
+    var isLatest = idx === h.dates.length - 1;
+
+    document.getElementById('date-input').value = date;
+
+    // Score
     var sign = score >= 0 ? '+' : '';
-    var scoreStr = sign + score.toFixed(1);
-    
-    document.getElementById('score-section').innerHTML = 
-        '<pre style="font-size:48px;font-weight:bold;color:' + col + ';margin:10px 0 0">' + 
-        scoreStr + '</pre>' +
-        '<pre style="font-size:18px;color:' + col + ';margin:0">' + alert + '</pre>' +
-        '<pre style="font-size:13px;color:#666;margin:4px 0 0">Regime: ' + c.regime + 
-        '  |  S&amp;P 500: ' + c.sp500.toLocaleString() + '  |  ' + c.date + '</pre>';
-    
+    var tag = isLatest ? '' : '<span style="color:#555;font-size:13px">  (historical)</span>';
+    var actLine = '';
+    if (actual !== undefined && actual !== null) {
+        var actCol = actual >= 0 ? '#5a5' : '#a44';
+        actLine = '  |  <span style="color:' + actCol + '">Actual 3mo outcome: ' + (actual >= 0 ? '+' : '') + actual.toFixed(1) + '</span>';
+    }
+    document.getElementById('score-section').innerHTML =
+        '<pre style="font-size:48px;font-weight:bold;color:' + col + ';margin:10px 0 0">' +
+        sign + score.toFixed(1) + '</pre>' +
+        '<pre style="font-size:18px;color:' + col + ';margin:0">' + alert + tag + '</pre>' +
+        '<pre style="font-size:13px;color:#666;margin:4px 0 0">Regime: ' + regime +
+        '  |  S&amp;P 500: ' + sp500.toLocaleString() + '  |  ' + date + actLine + '</pre>';
+
     // Scale bar
-    // -100 ====|===========0===========|==== +100
     var barLen = 60;
     var pos = Math.round((score + 100) / 200 * barLen);
     pos = Math.max(0, Math.min(barLen, pos));
     var bar = '';
     for (var i = 0; i < barLen; i++) {
         if (i === pos) bar += '<span style="color:' + col + ';font-weight:bold">█</span>';
-        else if (i === Math.round(barLen/2)) bar += '│';
-        else if (i === Math.round(barLen*0.25)) bar += '·';
-        else if (i === Math.round(barLen*0.75)) bar += '·';
+        else if (i === Math.round(barLen / 2)) bar += '│';
+        else if (i === Math.round(barLen * 0.25)) bar += '·';
+        else if (i === Math.round(barLen * 0.75)) bar += '·';
         else bar += '─';
     }
-    document.getElementById('scale-bar').innerHTML = 
+    document.getElementById('scale-bar').innerHTML =
         '<span style="color:#a44">-100</span> ' + bar + ' <span style="color:#4a4">+100</span>\n' +
         ' CRASH  BEAR    CAUTION  NEUTRAL  MILD BULL   BULL  STRONG';
-    
-    // Top features
-    var featHtml = '';
-    var maxImp = data.top_features[0].importance;
-    for (var i = 0; i < data.top_features.length && i < 12; i++) {
-        var f = data.top_features[i];
-        var barLen2 = Math.round(f.importance / maxImp * 20);
-        var fbar = '';
-        for (var j = 0; j < 20; j++) {
-            fbar += j < barLen2 ? '█' : '░';
+
+    // Features
+    if (isLatest && DATA.top_features) {
+        var featHtml = '';
+        var maxImp = DATA.top_features[0].importance;
+        for (var i = 0; i < DATA.top_features.length && i < 12; i++) {
+            var f = DATA.top_features[i];
+            var blen = Math.round(f.importance / maxImp * 20);
+            var fbar = '';
+            for (var j = 0; j < 20; j++) fbar += j < blen ? '█' : '░';
+            var fcol = f.push.indexOf('bear') >= 0 ? '#a85' : '#5a5';
+            var name = f.name.substring(0, 38);
+            while (name.length < 38) name += ' ';
+            var pct = (f.importance * 100).toFixed(1);
+            while (pct.length < 5) pct = ' ' + pct;
+            featHtml += '<span style="color:#888">' + name + '</span> <span style="color:' + fcol + '">' + fbar + '</span> <span style="color:#666">' + pct + '%</span>\n';
         }
-        var fcol = f.push.indexOf('bear') >= 0 ? '#a85' : '#5a5';
-        var name = f.name.substring(0, 38);
-        while (name.length < 38) name += ' ';
-        var pct = (f.importance * 100).toFixed(1);
-        while (pct.length < 5) pct = ' ' + pct;
-        featHtml += '<span style="color:#888">' + name + '</span> <span style="color:' + fcol + '">' + fbar + '</span> <span style="color:#666">' + pct + '%</span>\n';
+        document.getElementById('features').innerHTML = featHtml;
+    } else {
+        document.getElementById('features').innerHTML = '<span style="color:#555">Feature breakdown available for latest date only.\nHistorical scores shown above reflect what the model predicted at that time.</span>\n';
     }
-    document.getElementById('features').innerHTML = featHtml;
-    
-    // ASCII Chart - last 6 months of scores
-    var hist = data.history;
-    var recent = Math.min(hist.dates.length, 126);
-    var startIdx = hist.dates.length - recent;
-    var chartH = 15;
-    var chartW = 62;
-    
-    // Sample to fit width
-    var step = Math.max(1, Math.floor(recent / chartW));
+
+    // Chart — 6 months centered on idx
+    var wSize = 126;
+    var cStart = Math.max(0, idx - Math.floor(wSize / 2));
+    var cEnd = Math.min(h.dates.length, cStart + wSize);
+    cStart = Math.max(0, cEnd - wSize);
+    var chartH = 15, chartW = 62;
+    var step = Math.max(1, Math.floor((cEnd - cStart) / chartW));
     var pts = [];
-    for (var i = startIdx; i < hist.dates.length; i += step) {
-        pts.push({ score: hist.scores[i], date: hist.dates[i], sp: hist.sp500[i] });
+    for (var i = cStart; i < cEnd; i += step) {
+        pts.push({ score: h.scores[i], date: h.dates[i], idx: i });
     }
-    if (pts.length > chartW) pts = pts.slice(pts.length - chartW);
-    
+    if (pts.length > chartW) pts = pts.slice(0, chartW);
+
     var minS = -60, maxS = 60;
     var grid = [];
     for (var r = 0; r < chartH; r++) {
         grid[r] = [];
-        for (var c2 = 0; c2 < pts.length; c2++) {
-            grid[r][c2] = ' ';
-        }
+        for (var c = 0; c < pts.length; c++) grid[r][c] = ' ';
     }
-    
-    // Zero line
-    var zeroRow = Math.round((maxS) / (maxS - minS) * (chartH - 1));
-    for (var c2 = 0; c2 < pts.length; c2++) {
-        grid[zeroRow][c2] = '·';
-    }
-    
-    // Plot scores
-    for (var c2 = 0; c2 < pts.length; c2++) {
-        var s = Math.max(minS, Math.min(maxS, pts[c2].score));
+    var zRow = Math.round(maxS / (maxS - minS) * (chartH - 1));
+    for (var c = 0; c < pts.length; c++) grid[zRow][c] = '·';
+
+    var selCol = -1;
+    for (var c = 0; c < pts.length; c++) {
+        var s = Math.max(minS, Math.min(maxS, pts[c].score));
         var row = Math.round((maxS - s) / (maxS - minS) * (chartH - 1));
         row = Math.max(0, Math.min(chartH - 1, row));
-        grid[row][c2] = s >= 0 ? '▓' : '▒';
+        grid[row][c] = s >= 0 ? '▓' : '▒';
+        if (pts[c].idx === idx) selCol = c;
     }
-    
+
     var chartStr = '';
     for (var r = 0; r < chartH; r++) {
         var val = maxS - (r / (chartH - 1)) * (maxS - minS);
         var label = (val >= 0 ? '+' : '') + val.toFixed(0);
         while (label.length < 5) label = ' ' + label;
         var rowStr = '';
-        for (var c2 = 0; c2 < pts.length; c2++) {
-            var ch = grid[r][c2];
-            if (ch === '▓') rowStr += '<span style="color:#5a5">' + ch + '</span>';
+        for (var c = 0; c < pts.length; c++) {
+            var ch = grid[r][c];
+            if (c === selCol) rowStr += '<span style="color:#fff;font-weight:bold">│</span>';
+            else if (ch === '▓') rowStr += '<span style="color:#5a5">' + ch + '</span>';
             else if (ch === '▒') rowStr += '<span style="color:#a85">' + ch + '</span>';
             else if (ch === '·') rowStr += '<span style="color:#333">' + ch + '</span>';
             else rowStr += ch;
         }
         chartStr += '<span style="color:#555">' + label + '</span> │' + rowStr + '\n';
     }
-    // Date axis
-    var dateAxis = '      └';
-    for (var c2 = 0; c2 < pts.length; c2++) dateAxis += '─';
-    chartStr += '<span style="color:#555">' + dateAxis + '</span>\n';
-    chartStr += '<span style="color:#555">       ' + pts[0].date.substring(5) + 
-                new Array(Math.max(1, pts.length - 16)).join(' ') + pts[pts.length-1].date.substring(5) + '</span>';
-    
+    var axis = '      └';
+    for (var c = 0; c < pts.length; c++) axis += c === selCol ? '<span style="color:#fff">▲</span>' : '─';
+    chartStr += '<span style="color:#555">' + axis + '</span>\n';
+
+    var dateLine = '       ' + pts[0].date.substring(5);
+    if (selCol > 8 && selCol < pts.length - 8) {
+        var gap = selCol - 5 - pts[0].date.substring(5).length;
+        if (gap > 0) dateLine += new Array(gap + 1).join(' ');
+        dateLine += '<span style="color:#fff">' + pts[selCol].date.substring(5) + '</span>';
+        var tail = pts.length - selCol - 8;
+        if (tail > 0) dateLine += new Array(tail + 1).join(' ');
+    } else {
+        dateLine += new Array(Math.max(1, pts.length - 16)).join(' ');
+    }
+    dateLine += pts[pts.length - 1].date.substring(5);
+    chartStr += '<span style="color:#555">' + dateLine + '</span>';
     document.getElementById('chart').innerHTML = chartStr;
-    
-    // History table
-    var tableStr = '<span style="color:#666">DATE         SCORE   ALERT         S&P 500  REGIME</span>\n';
-    var tableStart = Math.max(0, hist.dates.length - 30);
-    for (var i = hist.dates.length - 1; i >= tableStart; i--) {
-        var s = hist.scores[i];
-        var sign = s >= 0 ? '+' : '';
-        var sStr = sign + s.toFixed(1);
+
+    // History table — 15 before, 15 after
+    var tStart = Math.max(0, idx - 15);
+    var tEnd = Math.min(h.dates.length, idx + 16);
+    var tStr = '<span style="color:#666">     DATE         SCORE   ALERT         S&P 500  REGIME          ACTUAL</span>\n';
+    for (var i = tEnd - 1; i >= tStart; i--) {
+        var s = h.scores[i];
+        var sn = s >= 0 ? '+' : '';
+        var sStr = sn + s.toFixed(1);
         while (sStr.length < 7) sStr = ' ' + sStr;
-        
-        var a;
-        if (s >= 40) a = 'STRONG BULL  ';
-        else if (s >= 15) a = 'BULL         ';
-        else if (s >= 5) a = 'MILD BULL    ';
-        else if (s >= -5) a = 'NEUTRAL      ';
-        else if (s >= -15) a = 'MILD BEAR    ';
-        else if (s >= -40) a = 'BEAR         ';
-        else a = 'CRISIS       ';
-        
-        var acol;
-        if (s >= 15) acol = '#5a5';
-        else if (s >= -5) acol = '#888';
-        else if (s >= -15) acol = '#a85';
-        else acol = '#a44';
-        
-        var spStr = hist.sp500[i].toLocaleString();
-        while (spStr.length < 8) spStr = ' ' + spStr;
-        
-        var reg = hist.regimes[i] || '';
-        while (reg.length < 12) reg += ' ';
-        
-        tableStr += '<span style="color:#888">' + hist.dates[i] + '</span> <span style="color:' + acol + '">' + sStr + '  ' + a + '</span><span style="color:#666">' + spStr + '  ' + reg + '</span>\n';
+        var a = getAlert(s);
+        while (a.length < 13) a += ' ';
+        var ac = getColor(s);
+        var sp = h.sp500[i].toLocaleString();
+        while (sp.length < 8) sp = ' ' + sp;
+        var rg = h.regimes[i] || '';
+        while (rg.length < 15) rg += ' ';
+        var av = h.actual[i];
+        var avStr = av !== undefined && av !== null ? (av >= 0 ? '+' : '') + av.toFixed(1) : '';
+        var isSel = i === idx;
+        var pfx = isSel ? '<span style="color:#fff;font-weight:bold"> ▶ </span>' : '   ';
+        tStr += pfx +
+            '<span style="color:' + (isSel ? '#fff' : '#888') + '">' + h.dates[i] + '</span> ' +
+            '<span style="color:' + ac + (isSel ? ';font-weight:bold' : '') + '">' + sStr + '  ' + a + '</span>' +
+            '<span style="color:' + (isSel ? '#ccc' : '#666') + '">' + sp + '  ' + rg + avStr + '</span>\n';
     }
-    document.getElementById('history-table').innerHTML = tableStr;
-    
+    document.getElementById('history-table').innerHTML = tStr;
+
     // Model info
-    var mi = data.model_info;
-    var infoStr = '';
-    infoStr += 'Features:     ' + mi.features_used + ' (selected from ~500 candidates)\n';
-    infoStr += 'Training:     ' + mi.training_days + ' business days\n';
-    infoStr += 'HMM regimes:  ' + mi.hmm_regimes + ' states, ' + mi.hmm_transitions + ' transitions\n';
-    infoStr += 'Algorithm:    XGBoost regression (depth=3, lr=0.01, heavy regularization)\n';
-    infoStr += 'Target:       3-month forward market score (-100 to +100)\n';
-    infoStr += 'Accuracy:     76% directional, 83% on strong signals\n';
-    infoStr += '\nRegime distribution:\n';
+    var mi = DATA.model_info;
+    var info = '';
+    info += 'Features:     ' + mi.features_used + ' (selected from ~500 candidates)\n';
+    info += 'Training:     ' + mi.training_days + ' business days\n';
+    info += 'HMM regimes:  ' + mi.hmm_regimes + ' states, ' + mi.hmm_transitions + ' transitions\n';
+    info += 'Algorithm:    XGBoost regression (depth=3, lr=0.01, heavy regularization)\n';
+    info += 'Target:       3-month forward market score (-100 to +100)\n';
+    info += 'Accuracy:     76% directional, 83% on strong signals\n';
+    info += 'History:      ' + h.dates.length + ' days (' + h.dates[0] + ' to ' + h.dates[h.dates.length - 1] + ')\n';
+    info += '\nRegime distribution:\n';
     for (var rn in mi.regime_breakdown) {
-        var days = mi.regime_breakdown[rn];
-        var barLen3 = Math.round(days / mi.training_days * 40);
-        var rbar = '';
-        for (var j = 0; j < barLen3; j++) rbar += '█';
-        infoStr += '  ' + rn;
-        while (infoStr.length - infoStr.lastIndexOf('\n') - 1 < 18) infoStr += ' ';
-        infoStr += days + 'd  ' + rbar + '\n';
+        var d = mi.regime_breakdown[rn];
+        var bl = Math.round(d / mi.training_days * 40);
+        var rb = '';
+        for (var j = 0; j < bl; j++) rb += '█';
+        var ln = '  ' + rn;
+        while (ln.length < 18) ln += ' ';
+        info += ln + d + 'd  ' + rb + '\n';
     }
-    infoStr += '\nGenerated: ' + data.generated;
-    document.getElementById('model-info').innerHTML = infoStr;
+    info += '\nGenerated: ' + DATA.generated;
+    document.getElementById('model-info').innerHTML = info;
 }
 </script>
 

@@ -352,20 +352,7 @@ def run():
         r = int(reg_reindexed.iloc[i]) if not np.isnan(reg_reindexed.iloc[i]) else 2
         regime_hist.append(rnames[r] if r < len(rnames) else "Unknown")
     
-    # Sample for JSON size (every 3rd day for history, daily for last 6 months)
-    cutoff = max(0, len(dates_all) - 126)
-    recent_dates = dates_all[cutoff:]
-    recent_scores = scores_all[cutoff:]
-    recent_sp500 = sp500_all[cutoff:]
-    recent_actual = actual_all[cutoff:]
-    recent_regimes = regime_hist[cutoff:]
-    
-    older_dates = dates_all[:cutoff:3]
-    older_scores = scores_all[:cutoff:3]
-    older_sp500 = sp500_all[:cutoff:3]
-    older_actual = actual_all[:cutoff:3]
-    older_regimes = regime_hist[:cutoff:3]
-    
+    # Export FULL daily history so the HTML viewer can jump to any date
     output = {
         'generated': today_date,
         'current': {
@@ -377,11 +364,11 @@ def run():
         },
         'top_features': top_features,
         'history': {
-            'dates': older_dates + recent_dates,
-            'scores': older_scores + recent_scores,
-            'sp500': older_sp500 + recent_sp500,
-            'actual': older_actual + recent_actual,
-            'regimes': older_regimes + recent_regimes,
+            'dates': dates_all,
+            'scores': scores_all,
+            'sp500': sp500_all,
+            'actual': actual_all,
+            'regimes': regime_hist,
         },
         'model_info': {
             'features_used': len(keep),
