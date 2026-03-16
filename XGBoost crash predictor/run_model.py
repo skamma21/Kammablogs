@@ -30,26 +30,19 @@ def rz(s, w=252):
     return (s - s.rolling(w).mean()) / s.rolling(w).std()
 
 def run():
-    print("="*60)
-    print("MARKET REGIME MODEL — RUNNING (Finetuned)")
-    print("="*60)
+    
     
     if not os.path.exists(DATA_PATH):
-        print(f"❌ {DATA_PATH} not found. Run collect_all_data.py first.")
+        print(f"{DATA_PATH} not found. Run collect_all_data.py first.")
         return
     
     df = pd.read_csv(DATA_PATH, index_col=0, parse_dates=True)
-    print(f"Data: {df.shape[0]} days × {df.shape[1]} columns")
-    print(f"Range: {df.index.min().strftime('%Y-%m-%d')} to {df.index.max().strftime('%Y-%m-%d')}")
+    
     
     sp = df['sp500_close']
     vix = df['vix_close']; hyg = df['hyg_close']; tlt = df['tlt_close']; gld = df['gld_close']
     sp_ret = sp.pct_change()
     
-    # =================================================================
-    # HMM — 6 regimes
-    # =================================================================
-    print("\n  HMM regime detection...")
     hmm_df = pd.DataFrame(index=df.index)
     hmm_df['r5'] = sp.pct_change(5); hmm_df['r21'] = sp.pct_change(21)
     hmm_df['v21'] = sp_ret.rolling(21).std(); hmm_df['vix'] = vix
@@ -84,8 +77,6 @@ def run():
     ordered = np.array([rmap[r] for r in regime_labels])
     
     current_regime = rnames[ordered[-1]] if len(ordered) > 0 else "Unknown"
-    print(f"  Current regime: {current_regime}")
-    print(f"  {len(ri)} regimes, {(np.diff(ordered) != 0).sum()} transitions")
     
     reg_df = pd.DataFrame(index=hmm_df.index)
     reg_df['regime'] = ordered
@@ -93,9 +84,7 @@ def run():
     reg_df['rchg'] = (ordered != np.roll(ordered, 1)).astype(float)
     reg_df['rchg21'] = reg_df['rchg'].rolling(21).sum()
     
-    # =================================================================
-    # TARGET (balanced)
-    # =================================================================
+
     fwd_ret = pd.Series(index=df.index, dtype=float)
     fwd_dd = pd.Series(index=df.index, dtype=float)
     fwd_gain = pd.Series(index=df.index, dtype=float)
@@ -110,10 +99,7 @@ def run():
                      0.25*np.clip(fwd_gain.values/0.20*100, 0, 100), -100, 100)
     target = pd.Series(target, index=df.index)
     
-    # =================================================================
-    # FEATURES (finetuned: base + interactions + temporal)
-    # =================================================================
-    print("  Engineering features...")
+
     F = pd.DataFrame(index=df.index)
     
     # HMM
@@ -217,8 +203,7 @@ def run():
     fzl=[F[f'{t}_z'] for t in ['gtrend_stock_market_crash','gtrend_bear_market','gtrend_financial_crisis','gtrend_economic_collapse'] if f'{t}_z' in F.columns]
     if fzl: F['fear']=pd.concat(fzl,axis=1).mean(axis=1)
     
-    # NEW: Feature interactions (from finetuning)
-    print("  Adding finetuned interactions...")
+ 
     F['yc_x_hy'] = F['yc_r21'] * F['hy_r21']
     F['yc_inv_x_un'] = F['yc_inv_d'] * F['un_r3m']
     F['vix_x_cr'] = F['vx_z'] * F['hy_z']
@@ -228,17 +213,13 @@ def run():
     F['br_x_vix'] = F['sd63'] * F['vx_z']
     F['gld_x_sp'] = gld.pct_change(21) * (-sp.pct_change(21))
     F['pay_x_se'] = F['pay_acc'] * F['se_r3m']
-    
-    # NEW: Temporal features (from finetuning)
+
     F['d_below200'] = (sp < sp.rolling(200).mean()).astype(float).rolling(252).sum()
     F['d_vix20'] = (vix > 20).astype(float).rolling(126).sum()
     F['hy_wid_str'] = (hy.diff(1) > 0).astype(float).rolling(21).sum()
     F['se_dec_str'] = (se.diff(21) < 0).astype(float).rolling(63).sum()
     F['broad_per'] = F['sd63'].rolling(63).mean()
-    
-    # =================================================================
-    # PREPARE + SELECT + TRAIN
-    # =================================================================
+
     F['target'] = target
     fcols = [c for c in F.columns if c != 'target']
     
@@ -258,12 +239,12 @@ def run():
         X_all[f'{col}_a'] = s.rolling(21).mean() - s.rolling(252).mean()
     X_all = X_all.ffill().fillna(0).replace([np.inf, -np.inf], 0)
     
-    # Training subset (only days with known targets)
+ 
     X_train_subset = X_all.loc[F_with_target.index]
     y_train_all = F_with_target['target'].values
     
-    # Feature selection (on training data only)
-    print(f"  Selecting from {X_all.shape[1]} features...")
+
+
     sc_sel = RobustScaler()
     sel = xgb.XGBRegressor(n_estimators=200, max_depth=3, learning_rate=0.02,
         subsample=0.7, colsample_bytree=0.4, reg_alpha=3.0, reg_lambda=5.0,
@@ -273,16 +254,14 @@ def run():
     imp = pd.Series(sel.feature_importances_, index=X_all.columns)
     nz = imp[imp > 0].sort_values(ascending=False)
     keep = nz.head(max(len(nz)//2, 50)).index.tolist()
-    
-    # Apply selection to ALL days
+ 
     X = X_all[keep]
     X_train_final = X.loc[F_with_target.index]
     y = y_train_all
-    print(f"  Selected {len(keep)} features")
-    print(f"  Training days: {len(X_train_final)}  |  Total days (incl. recent): {len(X)}")
+
     
     # Train on all available target data
-    print("  Training final model...")
+
     sc = RobustScaler()
     X_train_scaled = sc.fit_transform(X_train_final)
     
@@ -308,10 +287,6 @@ def run():
         top_features.append({'name': f, 'importance': round(float(v), 4),
                             'value': round(float(feat_val), 4), 'push': push})
     
-    # =================================================================
-    # BUILD JSON
-    # =================================================================
-    print("  Building results.json...")
     
     today_score = float(all_preds[-1])
     today_date = str(X.index[-1].strftime('%Y-%m-%d'))
@@ -329,7 +304,7 @@ def run():
     sp500_reindexed = sp.reindex(X.index).ffill()
     sp500_all = [round(float(sp500_reindexed.iloc[i]), 1) if not np.isnan(sp500_reindexed.iloc[i]) else 0 for i in range(len(X))]
     
-    # Actual outcomes: available for training days, None for recent days
+
     target_reindexed = target.reindex(X.index)
     actual_all = []
     for i in range(len(X)):
@@ -372,12 +347,9 @@ def run():
         json.dump(output, f, indent=2)
     
     print(f"\n  Score: {today_score:+.1f} ({alert})")
-    print(f"  Regime: {current_regime}")
-    print(f"  S&P 500: {sp.iloc[-1]:.0f}")
     print(f"  History: {len(dates_all)} days")
-    print(f"\n✅ Saved {OUTPUT_PATH}")
     print("   Open index.html in your browser to view.")
-    print("="*60)
+
 
 if __name__ == '__main__':
     run()
