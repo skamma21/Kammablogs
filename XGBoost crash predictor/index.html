@@ -19,7 +19,6 @@ Then refresh this page.
 
 <div id="app" style="display:none">
 
-<!-- DATE PICKER -->
 <div style="margin:0 0 16px">
 <span style="color:#888">JUMP TO DATE: </span>
 <input id="date-input" type="date" style="background:#222;color:#ccc;border:1px solid #444;font-family:'Courier New',monospace;font-size:14px;padding:4px 8px">
@@ -28,33 +27,30 @@ Then refresh this page.
 <span id="date-hint" style="color:#555;font-size:11px;margin-left:12px"></span>
 </div>
 
-<!-- SCORE -->
+
 <div id="score-section"></div>
 
-<!-- SCALE BAR -->
+
 <pre id="scale-bar" style="color:#888;margin:10px 0 20px"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
 
-<!-- TOP FEATURES -->
 <pre style="color:#888;font-size:12px;margin-bottom:4px">TOP SIGNALS DRIVING THIS SCORE</pre>
 <pre id="features" style="font-size:12px"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
-
-<!-- CHART -->
 <pre style="color:#888;font-size:12px;margin-bottom:4px">6-MONTH WINDOW (centered on selected date)</pre>
 <pre id="chart" style="font-size:11px;line-height:1.3"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
 
-<!-- HISTORY TABLE -->
+
 <pre style="color:#888;font-size:12px;margin-bottom:4px">SCORE HISTORY (30 days around selected date)</pre>
 <pre id="history-table" style="font-size:11px"></pre>
 
 <pre style="color:#333">──────────────────────────────────────────────────────────────────</pre>
 
-<!-- MODEL INFO -->
+
 <pre style="color:#888;font-size:12px;margin-bottom:4px">MODEL INFO</pre>
 <pre id="model-info" style="font-size:12px;color:#666"></pre>
 
@@ -206,7 +202,7 @@ function renderAt(idx) {
         '<span style="color:#a44">-100</span> ' + bar + ' <span style="color:#4a4">+100</span>\n' +
         ' CRASH  BEAR    CAUTION  NEUTRAL  MILD BULL   BULL  STRONG';
 
-    // Features
+    
     if (isLatest && DATA.top_features) {
         var featHtml = '';
         var maxImp = DATA.top_features[0].importance;
@@ -227,7 +223,7 @@ function renderAt(idx) {
         document.getElementById('features').innerHTML = '<span style="color:#555">Feature breakdown available for latest date only.\nHistorical scores shown above reflect what the model predicted at that time.</span>\n';
     }
 
-    // Chart — 6 months centered on idx
+    
     var wSize = 126;
     var cStart = Math.max(0, idx - Math.floor(wSize / 2));
     var cEnd = Math.min(h.dates.length, cStart + wSize);
@@ -292,7 +288,7 @@ function renderAt(idx) {
     chartStr += '<span style="color:#555">' + dateLine + '</span>';
     document.getElementById('chart').innerHTML = chartStr;
 
-    // History table — 15 before, 15 after
+    
     var tStart = Math.max(0, idx - 15);
     var tEnd = Math.min(h.dates.length, idx + 16);
     var tStr = '<span style="color:#666">     DATE         SCORE   ALERT         S&P 500  REGIME          ACTUAL</span>\n';
@@ -319,7 +315,7 @@ function renderAt(idx) {
     }
     document.getElementById('history-table').innerHTML = tStr;
 
-    // Model info
+
     var mi = DATA.model_info;
     var info = '';
     info += 'Features:     ' + mi.features_used + ' (selected from ~500 candidates)\n';
