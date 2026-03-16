@@ -77,7 +77,10 @@ var DATA = null;
 var currentIdx = -1;
 
 fetch('./data/results.json')
-.then(function(r) { return r.json(); })
+.then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+})
 .then(function(data) {
     DATA = data;
     document.getElementById('loading').style.display = 'none';
@@ -91,15 +94,24 @@ fetch('./data/results.json')
     jumpToDate(data.history.dates[data.history.dates.length - 1]);
 })
 .catch(function(e) {
-    document.getElementById('loading').innerHTML =
-        'ERROR: Could not load data/results.json\n\n' +
-        'Make sure you have run:\n' +
-        '  1. python collect_all_data.py --fred-key YOUR_KEY\n' +
-        '  2. python run_model.py\n\n' +
-        'Then start a local server:\n' +
-        '  python -m http.server 8000\n' +
-        '  Open http://localhost:8000/index.html\n\n' +
-        'Error: ' + e.message;
+    var isFileProtocol = window.location.protocol === 'file:';
+    var msg = 'ERROR: Could not load data/results.json\n\n';
+    if (isFileProtocol) {
+        msg += 'BROWSERS BLOCK LOCAL FILE ACCESS (CORS policy).\n';
+        msg += 'You need to run a simple local server:\n\n';
+        msg += '  1. Open terminal/command prompt\n';
+        msg += '  2. cd to the folder containing index.html\n';
+        msg += '  3. Run:  python -m http.server 8000\n';
+        msg += '  4. Open: http://localhost:8000/index.html\n\n';
+        msg += 'This is a one-line command, not a full server install.\n';
+    } else {
+        msg += 'Make sure you have run:\n';
+        msg += '  1. python collect_all_data.py --fred-key YOUR_KEY\n';
+        msg += '  2. python run_model.py\n\n';
+        msg += 'And that data/results.json exists in the same folder.\n';
+    }
+    msg += '\nError: ' + e.message;
+    document.getElementById('loading').innerHTML = msg;
     document.getElementById('loading').style.color = '#aa4444';
 });
 

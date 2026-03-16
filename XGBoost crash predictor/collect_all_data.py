@@ -1,8 +1,9 @@
 """
 =============================================================================
-MARKET REGIME MODEL — DATA COLLECTOR
+MARKET REGIME MODEL — DATA COLLECTOR (20-Year Edition)
 =============================================================================
-Collects all required data and outputs master.csv
+Collects all required data from 2005 to present, giving the model 8+ crash
+events to learn from instead of 4-5.
 
 SETUP:
     pip install yfinance pandas numpy requests pytrends
@@ -22,18 +23,15 @@ import yfinance as yf
 import requests
 from io import StringIO
 
-START_DATE = "2015-01-01"
+START_DATE = "2005-01-01"
 END_DATE = pd.Timestamp.now().strftime("%Y-%m-%d")
 
 os.makedirs("./data/raw", exist_ok=True)
 
 def log(msg): print(f"  {msg}")
 
-# =============================================================================
-# 1. STOCK / ETF DATA
-# =============================================================================
 def collect_stocks():
-    print("\n[1/4] STOCK & ETF DATA")
+    print("\n[1/4] STOCK & ETF DATA (2005-present)")
     tickers = {
         "sp500":"^GSPC","vix":"^VIX","hyg":"HYG","tlt":"TLT","gld":"GLD","btc":"BTC-USD",
         "sect_tech":"XLK","sect_health":"XLV","sect_financials":"XLF","sect_disc":"XLY",
@@ -58,18 +56,15 @@ def collect_stocks():
                 df = df[['Open','High','Low','Close','Volume']]
                 df.columns = [f"{name}_{c.lower()}" for c in df.columns]
                 frames.append(df)
-                log(f"✅ {name} ({ticker}): {len(df)} days")
+                log(f"✅ {name}: {len(df)} days ({df.index.min().strftime('%Y')}-{df.index.max().strftime('%Y')})")
             else:
                 log(f"❌ {name}: empty")
         except Exception as e:
             log(f"❌ {name}: {e}")
     return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
-# =============================================================================
-# 2. FRED DATA
-# =============================================================================
 def collect_fred(api_key):
-    print("\n[2/4] FRED ECONOMIC DATA")
+    print("\n[2/4] FRED ECONOMIC DATA (2005-present)")
     series = {
         "yield_spread_10y2y":"T10Y2Y","yield_spread_10y3m":"T10Y3M",
         "credit_spread_baa":"BAA10Y","ice_bofa_hy_spread":"BAMLH0A0HYM2",
@@ -91,14 +86,9 @@ def collect_fred(api_key):
         "trade_balance":"BOPGSTB","air_passengers":"AIRRPMTSI",
         "cfnai":"CFNAI","gdp":"GDP","defense_spending":"FDEFX",
         "cc_delinquency":"DRCCLACBS",
-    }
-    # Additional political/risk series
-    extra = {
         "equity_uncertainty":"WLEMUINDXD","usd_index":"DTWEXBGS",
         "chicago_fci":"NFCI","chicago_leverage":"ANFCI",
     }
-    series.update(extra)
-    
     frames = []
     for name, sid in series.items():
         try:
@@ -123,17 +113,12 @@ def collect_fred(api_key):
         time.sleep(0.3)
     return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
-# =============================================================================
-# 3. GOOGLE TRENDS
-# =============================================================================
 def collect_trends():
-    print("\n[3/4] GOOGLE TRENDS")
+    print("\n[3/4] GOOGLE TRENDS (monthly pre-2015, weekly after)")
     try:
         from pytrends.request import TrendReq
     except ImportError:
-        log("❌ pytrends not installed. pip install pytrends")
-        return pd.DataFrame()
-    
+        log("❌ pytrends not installed. pip install pytrends"); return pd.DataFrame()
     pytrends = TrendReq(hl='en-US', tz=360, timeout=(10,25))
     all_terms = [
         "recession","layoffs","unemployment benefits","food stamps",
@@ -146,7 +131,6 @@ def collect_trends():
         "coupon codes","discount store","free entertainment","sell my car",
         "how to save money","thrift store",
     ]
-    
     frames = []
     for i in range(0, len(all_terms), 5):
         batch = all_terms[i:i+5]
@@ -157,21 +141,16 @@ def collect_trends():
                 df = df.drop('isPartial', axis=1)
                 df.columns = [f"gtrend_{t.replace(' ','_')}" for t in batch]
                 frames.append(df)
-                log(f"✅ {', '.join(batch)}: {len(df)} weeks")
+                log(f"✅ {', '.join(batch[:2])}...: {len(df)} points")
             time.sleep(5)
         except Exception as e:
-            log(f"❌ {batch}: {e}")
-            time.sleep(30)
+            log(f"❌ {batch}: {e}"); time.sleep(30)
     return pd.concat(frames, axis=1) if frames else pd.DataFrame()
 
-# =============================================================================
-# 4. EPU
-# =============================================================================
 def collect_epu():
-    print("\n[4/4] ECONOMIC POLICY UNCERTAINTY")
+    print("\n[4/4] ECONOMIC POLICY UNCERTAINTY (1985-present)")
     try:
-        url = "https://www.policyuncertainty.com/media/US_Policy_Uncertainty_Data.csv"
-        resp = requests.get(url, timeout=30)
+        resp = requests.get("https://www.policyuncertainty.com/media/US_Policy_Uncertainty_Data.csv", timeout=30)
         if resp.status_code == 200:
             df = pd.read_csv(StringIO(resp.text))
             if 'Year' in df.columns and 'Month' in df.columns:
@@ -179,24 +158,19 @@ def collect_epu():
                 val_cols = [c for c in df.columns if c not in ['Year','Month','date'] and df[c].dtype in ['float64','int64']]
                 if val_cols:
                     df['epu_monthly'] = pd.to_numeric(df[val_cols[0]], errors='coerce')
-                    result = df[['date','epu_monthly']].dropna().set_index('date')
-                    log(f"✅ EPU monthly: {len(result)} obs")
-                    return result
+                    result = df[['date','epu_monthly']].dropna().set_index('date').loc[START_DATE:]
+                    log(f"✅ EPU: {len(result)} months"); return result
         log("❌ EPU failed")
-    except Exception as e:
-        log(f"❌ EPU: {e}")
+    except Exception as e: log(f"❌ EPU: {e}")
     return pd.DataFrame()
 
-# =============================================================================
-# MERGE & SAVE
-# =============================================================================
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fred-key', required=True, help='FRED API key')
+    parser.add_argument('--fred-key', required=True)
     args = parser.parse_args()
     
     print("="*60)
-    print("MARKET REGIME MODEL — DATA COLLECTION")
+    print(f"DATA COLLECTION — {START_DATE} to {END_DATE}")
     print("="*60)
     
     stocks = collect_stocks()
@@ -204,21 +178,17 @@ def main():
     trends = collect_trends()
     epu = collect_epu()
     
-    # Align to business days
     bdays = pd.date_range(start=START_DATE, end=END_DATE, freq='B')
-    
-    print("\n--- MERGING ---")
     master = pd.DataFrame(index=bdays)
     
-    for df in [trends, stocks, fred, epu]:
-        if len(df) > 0:
-            aligned = df.reindex(bdays).ffill()
-            for col in aligned.columns:
-                master[col] = aligned[col]
+    for src in [trends, stocks, fred, epu]:
+        if len(src) > 0:
+            aligned = src.reindex(bdays).ffill()
+            for col in aligned.columns: master[col] = aligned[col]
     
     master = master.ffill().bfill()
     
-    # Compute sentiment proxies
+    # Sentiment proxies
     if 'fred_consumer_sentiment' in master.columns:
         cs = master['fred_consumer_sentiment']
         master['proxy_sentiment_accel'] = cs.pct_change(63) - cs.pct_change(63).shift(63)
@@ -234,11 +204,11 @@ def main():
         master['proxy_credit_shock'] = (cv > 2).astype(float)
     if 'fred_yield_spread_10y2y' in master.columns:
         yc = master['fred_yield_spread_10y2y']
-        inv = (yc < 0).astype(float)
-        master['proxy_inversion_severity'] = inv.rolling(252).sum() * (-yc).clip(lower=0)
+        master['proxy_inversion_severity'] = (yc < 0).astype(float).rolling(252).sum() * (-yc).clip(lower=0)
     
     master.to_csv("./data/master.csv")
     print(f"\n✅ Saved ./data/master.csv: {master.shape[0]} rows × {master.shape[1]} columns")
+    print(f"   {master.index.min().strftime('%Y-%m-%d')} to {master.index.max().strftime('%Y-%m-%d')}")
     print("="*60)
 
 if __name__ == '__main__':
